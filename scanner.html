@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CD Barcode Scanner</title>
+    <!-- Include Html5Qrcode library for reliable camera barcode scanning -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --background: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #0f172a;
+            --text-light: #64748b;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--background);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 500px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        h1 {
+            text-align: center;
+            font-size: 1.5rem;
+            margin: 10px 0 0 0;
+        }
+        #reader {
+            width: 100%;
+            border-radius: 12px;
+            overflow: hidden;
+            border: none !important;
+            background: #000;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+        /* Custom styling to override html5-qrcode default ugly buttons */
+        #reader button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 10px;
+            cursor: pointer;
+        }
+        #reader select {
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid var(--text-light);
+            margin: 10px;
+        }
+        .status {
+            text-align: center;
+            font-weight: 500;
+            color: var(--text-light);
+            min-height: 24px;
+        }
+        .cd-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 15px;
+        }
+        .cover-art {
+            width: 200px;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
+            background-color: #e2e8f0;
+        }
+        .album-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin: 0;
+        }
+        .artist-name {
+            font-size: 1.1rem;
+            color: var(--primary);
+            font-weight: 600;
+            margin: 0;
+        }
+        .meta-group {
+            display: flex;
+            gap: 10px;
+            font-size: 0.9rem;
+            color: var(--text-light);
+        }
+        .badge {
+            background: #e2e8f0;
+            padding: 4px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            font-weight: bold;
+            font-size: 0.75rem;
+        }
+        .manual-input {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .manual-input input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+        }
+        .manual-input button {
+            background: #475569;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>💿 CD Barcode Scanner</h1>
+    
+    <!-- Camera Scanner Interface -->
+    <div id="reader"></div>
+    
+    <div id="status" class="status">Ready to scan a CD barcode...</div>
+
+    <!-- Manual Fallback Input -->
+    <div class="manual-input">
+        <input type="text" id="manualUpc" placeholder="Or enter barcode manually...">
+        <button onclick="lookupBarcode(document.getElementById('manualUpc').value)">Lookup</button>
+    </div>
+
+    <!-- CD Info Display Result Card -->
+    <div id="cdCard" class="cd-card">
+        <img id="cdCover" class="cover-art" src="" alt="Album Cover">
+        <div>
+            <h2 id="cdTitle" class="album-title"></h2>
+            <p id="cdArtist" class="artist-name"></p>
+        </div>
+        <div class="meta-group">
+            <span id="cdGenre" class="badge">Genre</span>
+            <span id="cdYear">Year</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    const statusDiv = document.getElementById('status');
+    const cdCard = document.getElementById('cdCard');
+
+    // Initialize the Barcode Scanner
+    const html5QrcodeScanner = new Html5QrcodeScanner(
+        "reader", 
+        { 
+            fps: 10, 
+            qrbox: { width: 250, height: 150 }, // Landscape box tailored for 1D retail barcodes
+            experimentalFeatures: {
+                useBarCodeDetectorIfSupported: true
+            }
+        },
+        /* verbose= */ false
+    );
+    
+    html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+
+    function onScanSuccess(decodedText, decodedResult) {
+        // Stop scanning temporarily or play a sound if desired
+        statusDiv.innerText = `Barcode detected: ${decodedText}. Fetching details...`;
+        lookupBarcode(decodedText);
+    }
+
+    function onScanFailure(error) {
+        // Quietly fail as it checks frame by frame
+    }
+
+    // Fetch album details via the open Discogs API
+    function lookupBarcode(upc) {
+        if (!upc) return;
+        
+        statusDiv.innerText = "Searching Discogs database...";
+        cdCard.style.display = "none";
+
+        // Clean up the text input (remove spaces/hyphens)
+        const cleanUpc = upc.replace(/\s+/g, '').replace(/-/g, '');
+
+        // Using Discogs Open Data Endpoint for barcodes
+        // Note: Production environments with high volume typically require an API key added to the headers
+        const url = `https://api.discogs.com/database/search?barcode=${cleanUpc}`;
+
+        fetch(url, {
+            headers: {
+                'User-Agent': 'WebCDScannerApp/1.0 (https://yourdomain.com)'
+            }
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('Network error');
+            return response.json();
+        })
+        .then(data => {
+            if (data.results && data.results.length > 0) {
+                const album = data.results[0]; // Take the closest match
+                displayCD(album);
+            } else {
+                // Fallback to iTunes API if Discogs returns nothing
+                tryAlternativeiTunesLookup(cleanUpc);
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            tryAlternativeiTunesLookup(cleanUpc);
+        });
+    }
+
+    // Alternative lookup fallback to ensure maximum hit rates
+    function tryAlternativeiTunesLookup(upc) {
+        statusDiv.innerText = "Trying alternative iTunes database...";
+        const url = `https://itunes.apple.com/lookup?upc=${upc}`;
+
+        // Using JSONP pattern or direct fetch since iTunes supports CORS
+        fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            if (data.results && data.results.length > 0) {
+                const track = data.results[0];
+                
+                // Format cover art to be high resolution instead of standard 100x100
+                const highResCover = track.artworkUrl100 ? track.artworkUrl100.replace('100x100bb', '500x500bb') : '';
+
+                document.getElementById('cdCover').src = highResCover || 'https://via.placeholder.com/200?text=No+Cover';
+                document.getElementById('cdTitle').innerText = track.collectionName || "Unknown Album";
+                document.getElementById('cdArtist').innerText = track.artistName || "Unknown Artist";
+                document.getElementById('cdGenre').innerText = track.primaryGenreName || "Music";
+                document.getElementById('cdYear').innerText = track.releaseDate ? track.releaseDate.substring(0, 4) : "N/A";
+                
+                statusDiv.innerText = "Match found!";
+                cdCard.style.display = "flex";
+            } else {
+                statusDiv.innerText = "No album details found for this barcode.";
+            }
+        })
+        .catch(err => {
+            statusDiv.innerText = "Error looking up code. Please try again.";
+            console.error(err);
+        });
+    }
+
+    function displayCD(album) {
+        // Discogs format usually splits names via standard "Artist - Title" formats
+        let artist = "Unknown Artist";
+        let title = album.title || "Unknown Album";
+        
+        if (album.title && album.title.includes(' - ')) {
+            const parts = album.title.split(' - ');
+            artist = parts[0];
+            title = parts[1];
+        }
+
+        document.getElementById('cdCover').src = album.cover_image || 'https://via.placeholder.com/200?text=No+Cover';
+        document.getElementById('cdTitle').innerText = title;
+        document.getElementById('cdArtist').innerText = artist;
+        
+        // Grab genre arrays if available
+        document.getElementById('cdGenre').innerText = (album.genre && album.genre.length > 0) ? album.genre[0] : "Music";
+        document.getElementById('cdYear').innerText = album.year || "N/A";
+
+        statusDiv.innerText = "Match found!";
+        cdCard.style.display = "flex";
+    }
+</script>
+
+</body>
+</html>
